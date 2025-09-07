@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "latent-diffusion-core"
+version = "0.1.0"
+description = ""
+authors = ["Vladislav Vinokurov <vinokurov.va@phystech.edu>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.12"
+torch = "^2.8.0"
+tqdm = "^4.67.1"
+lpips = "^0.1.4"
+pre-commit = "^4.3.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
