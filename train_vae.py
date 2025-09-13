@@ -1,79 +1,77 @@
+import argparse
+import warnings
+
 import torch
-import torch.nn.functional as F
-import lpips
+from torch.utils.data import DataLoader
+from torch.optim import AdamW
+from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 
-from src.utils.checkpoints import save_checkpoint
+from src.applications.train_vae import train_vae
+from src.models.autoencoder import VAE
+from src.data.vae_dataset import VaeDataset, TestVaeDataset
 
+warnings.filterwarnings("ignore")
 
-def vae_loss(recon_x, x, mu, logvar, beta=0.001):
-    mse = F.mse_loss(recon_x, x, reduction='mean')
-    kl_loss = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
-    return mse + beta*kl_loss, (mse, kl_loss)
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "-e", "--epochs", required=True, type=int, help="number of epochs"
+    )
+    parser.add_argument(
+        "-b", "--batch_size", required=True, type=int, help="batch size"
+    )
+    args = vars(parser.parse_args())
 
+    print("[INFO] Initializing VAE...\n")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = VAE()
 
-def train_vae(
-        model, device, train_loader, val_loader, optimizer, num_epochs, scheduler=None, accumulation_steps=1,
-        logging_steps=100, checkpoint_path="models/checkpoints_vae",
-        beta_start=0.00025, beta_end=0.01
-):
-    lpips_score = lpips.LPIPS(net='vgg').to(device)
-    model.to(device)
+    print("[INFO] Prepating data...\n")
+    pretrain_dataset = TestVaeDataset()
+    pretrain_dataloader = DataLoader(pretrain_dataset, batch_size=args["batch_size"], shuffle=True)
 
-    best_lpips = float('inf')
+    test_dataset = TestVaeDataset()
+    test_dataloader = DataLoader(test_dataset, batch_size=args["batch_size"], shuffle=False)
 
-    for epoch in range(num_epochs):
-        model.train()
-        running_loss, running_mse, running_kl = 0.0, 0.0, 0.0
+    optimizer = AdamW(
+        model.parameters(),
+        lr=1e-4,
+        weight_decay=1e-4,
+        betas=(0.9, 0.999),
+        eps=1e-8
+    )
 
-        beta = beta_start + (beta_end - beta_start) * (epoch / (num_epochs - 1))
-        for i, (images, _) in enumerate(train_loader):
-            images = images.to(device)
+    warmup_scheduler = LinearLR(
+        optimizer,
+        start_factor=1e-4 / 1e-4,
+        end_factor=1.0,
+        total_iters=int(args["epochs"] * 0.1),
+    )
 
-            recon_x, encoded = model(images)
-            mean, log_variance = torch.chunk(encoded, 2, dim=1)
+    main_scheduler = CosineAnnealingLR(
+        optimizer,
+        T_max=args["epochs"] - int(args["epochs"] * 0.1),
+        eta_min=1e-6
+    )
 
-            loss, (mse, kl_loss) = vae_loss(recon_x, images, mean, log_variance, beta)
-            loss = loss / accumulation_steps
-            loss.backward()
+    scheduler = SequentialLR(
+        optimizer,
+        schedulers=[warmup_scheduler, main_scheduler],
+        milestones=[int(args["epochs"] * 0.1)]
+    )
 
-            if (i + 1) % accumulation_steps == 0:
-                optimizer.step()
-                optimizer.zero_grad()
-
-            running_loss += loss.item() * accumulation_steps
-            running_mse += mse.item()
-            running_kl += kl_loss.item()
-
-            if (i + 1) % logging_steps == 0:
-                with torch.no_grad():
-                    lpips_value = lpips_score(images, recon_x).mean().item()
-                print(f"[Step {i + 1}/{len(train_loader)}] "
-                      f"Loss: {running_loss / logging_steps:.4f} "
-                      f"MSE: {running_mse / logging_steps:.4f} KL: {running_kl / logging_steps:.4f} "
-                      f"LPIPS: {lpips_value:.4f} β: {beta:.6f}")
-                running_loss, running_mse, running_kl = 0.0, 0.0, 0.0
-
-        if scheduler:
-            scheduler.step()
-
-        checkpoint_path = f"{checkpoint_path}/chkpt_vae_epoch_{epoch}.pth"
-        save_checkpoint(model, optimizer, epoch, checkpoint_path, scheduler)
-
-        model.eval()
-        lpips_scores = []
-        with torch.no_grad():
-            for images, _ in val_loader:
-                images = images.to(device)
-                recon_x, _ = model(images)
-                lpips_value = lpips_score(images, recon_x).mean().item()
-                lpips_scores.append(lpips_value)
-
-        avg_lpips_score = sum(lpips_scores) / len(lpips_scores)
-        print(f"Epoch {epoch} Validation LPIPS: {avg_lpips_score:.4f}")
-
-        if avg_lpips_score < best_lpips:
-            best_lpips = avg_lpips_score
-            checkpoint_path = f"{checkpoint_path}/best_vae.pth"
-            save_checkpoint(model, optimizer, epoch, checkpoint_path, scheduler, best=True)
-
-    print(f"\nTraining finished. Best Validation LPIPS: {best_lpips:.4f}")
+    print("[INFO] Starting training")
+    train_vae(
+        model=model,
+        device=device,
+        train_loader=pretrain_dataloader,
+        eval_loader=test_dataloader,
+        optimizer=optimizer,
+        num_epochs=args["epochs"],
+        scheduler=scheduler,
+        accumulation_steps=1,
+        logging_steps=100,
+        checkpoint_path="models/checkpoints_vae",
+        beta_start=0.00025,
+        beta_end=0.01
+    )

@@ -13,7 +13,7 @@ class SelfAttention(nn.Module):
 
         self.dim_heads = emded_dim // n_heads
 
-    def forward(self, x, causal_mask):
+    def forward(self, x, causal_mask=None):
         # x: [batch_size, seq_len, emb_dim]
         batch_size, seq_len, emb_dim = x.shape
 

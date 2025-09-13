@@ -8,7 +8,7 @@ from .util_modules import SelfAttention
 class AttentionBlock(nn.Module):
     def __init__(self, channels):
         super(AttentionBlock, self).__init__()
-        self.groupnorm = nn.GroupNorm(32, channels)
+        self.groupnorm = nn.GroupNorm(8, channels)
         self.attn = SelfAttention(emded_dim=channels, n_heads=1)
 
     def forward(self, x):
@@ -42,10 +42,10 @@ class AttentionBlock(nn.Module):
 class ResidualBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(ResidualBlock, self).__init__()
-        self.groupnorm1 = nn.GroupNorm(32, in_channels)
+        self.groupnorm1 = nn.GroupNorm(8, in_channels)
         self.conv1 = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=3, padding=1)
 
-        self.groupnorm2 = nn.GroupNorm(32, out_channels)
+        self.groupnorm2 = nn.GroupNorm(8, out_channels)
         self.conv2 = nn.Conv2d(in_channels=out_channels, out_channels=out_channels, kernel_size=3, padding=1)
 
         if in_channels == out_channels:
@@ -68,66 +68,52 @@ class ResidualBlock(nn.Module):
 class Encoder(nn.Sequential):
     def __init__(self):
         super(Encoder, self).__init__(
-            # [batch_size, 3, h, w] --> [batch_size, 128, h, w]
-            nn.Conv2d(3, 128, kernel_size=3, padding=1),
+            # [batch_size, 3, h, w] --> [batch_size, 64, h, w]
+            nn.Conv2d(3, 64, kernel_size=3, padding=1),
 
-            # [batch_size, 128, h, w] --> [batch_size, 128, h, w]
+            # [batch_size, 64, h, w] --> [batch_size, 64, h, w]
+            ResidualBlock(64, 64),
+
+            # [batch_size, 64, h, w] --> [batch_size, 128, h/2, w/2]
+            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1),
+
+            # [batch_size, 128, h/2, w/2] --> [batch_size, 128, h/2, w/2]
             ResidualBlock(128, 128),
 
-            # [batch_size, 128, h, w] --> [batch_size, 128, h/2, w/2]
-            nn.Conv2d(128, 128, kernel_size=3, stride=2, padding=0),
+            # [batch_size, 128, h/2, w/2] --> [batch_size, 256, h/4, w/4]
+            nn.Conv2d(128, 256, kernel_size=3, stride=2, padding=1),
 
-            # [batch_size, 128, h/2, w/2] --> [batch_size, 256, h/2, w/2]
-            ResidualBlock(128, 256),
-
-            # [batch_size, 256, h/2, w/2] --> [batch_size, 256, h/2, w/2]
+            # [batch_size, 256, h/4, w/4] --> [batch_size, 256, h/4, w/4]
             ResidualBlock(256, 256),
 
-            # [batch_size, 256, h, w] --> [batch_size, 256, h/4, w/4]
-            nn.Conv2d(256, 256, kernel_size=3, stride=2, padding=0),
+            # [batch_size, 256, h/4, w/4] --> [batch_size, 256, h/8, w/8]
+            nn.Conv2d(256, 256, kernel_size=3, stride=2, padding=1),
 
-            # [batch_size, 256, h/4, w/4] --> [batch_size, 512, h/4, w/4]
-            ResidualBlock(256, 512),
+            # [batch_size, 256, h/8, w/8] --> [batch_size, 256, h/8, w/8]
+            ResidualBlock(256, 256),
 
-            # [batch_size, 512, h/4, w/4] --> [batch_size, 512, h/4, w/4]
-            ResidualBlock(512, 512),
+            # [batch_size, 256, h/8, w/8] --> [batch_size, 256, h/8, w/8]
+            AttentionBlock(256),
 
-            # [batch_size, 512, h/4, w/4] --> [batch_size, 512, h/8, w/8]
-            nn.Conv2d(512, 512, kernel_size=3, stride=2, padding=0),
+            # [batch_size, 256, h/8, w/8] --> [batch_size, 256, h/8, w/8]
+            ResidualBlock(256, 256),
 
-            # [batch_size, 512, h/8, w/8] --> [batch_size, 512, h/8, w/8]
-            ResidualBlock(512, 512),
+            # [batch_size, 256, h/8, w/8] --> [batch_size, 256, h/8, w/8]
+            nn.GroupNorm(32, 256),
 
-            # [batch_size, 512, h/8, w/8] --> [batch_size, 512, h/8, w/8]
-            ResidualBlock(512, 512),
-
-            # [batch_size, 512, h/8, w/8] --> [batch_size, 512, h/8, w/8]
-            ResidualBlock(512, 512),
-
-            # [batch_size, 512, h/8, w/8] --> [batch_size, 512, h/8, w/8]
-            AttentionBlock(512),
-
-            # [batch_size, 512, h/8, w/8] --> [batch_size, 512, h/8, w/8]
-            ResidualBlock(512, 512),
-
-            # [batch_size, 512, h/8, w/8] --> [batch_size, 512, h/8, w/8]
-            nn.GroupNorm(32, 512),
-
-            # [batch_size, 512, h/8, w/8] --> [batch_size, 512, h/8, w/8]
+            # [batch_size, 256, h/8, w/8] --> [batch_size, 256, h/8, w/8]
             nn.SiLU(),
 
-            # [batch_size, 512, h/8, w/8] --> [batch_size, 8, h/8, w/8]
-            nn.Conv2d(512, 8, kernel_size=3, padding=1),
+            # [batch_size, 256, h/8, w/8] --> [batch_size, 8, h/8, w/8]
+            nn.Conv2d(256, 8, kernel_size=3, padding=1),
 
             # [batch_size, 8, h/8, w/8] --> [batch_size, 8, h/8, w/8]
-            nn.Conv2d(8, 8, kernel_size=3, padding=0)
+            nn.Conv2d(8, 8, kernel_size=3, padding=1)
         )
 
     def forward(self, x):
         # x: [batch_size, 3, h, w]
         for module in self:
-            if isinstance(module, nn.Conv2d) and module.stride == (2, 2):
-                x = F.pad(x, (0, 1, 0, 1))
             x = module(x)
 
         # [batch_size, 8, h/8, w/8] --> two tensors [batch_size, 4, h/8, w/8]
@@ -148,74 +134,53 @@ class Encoder(nn.Sequential):
 class Decoder(nn.Sequential):
     def __init__(self):
         super(Decoder, self).__init__(
-            # [batch_size, 4, h/8, w/8] --> [batch_size, 512, h/8, w/8]
-            nn.Conv2d(4, 512, kernel_size=3, padding=1),
+            # [batch_size, 4, h/8, w/8] --> [batch_size, 256, h/8, w/8]
+            nn.Conv2d(4, 256, kernel_size=3, padding=1),
 
-            # [batch_size, 512, h/8, w/8] --> [batch_size, 512, h/8, w/8]
-            ResidualBlock(512, 512),
-
-            # [batch_size, 512, h/8, w/8] --> [batch_size, 512, h/8, w/8]
-            AttentionBlock(512),
-
-            # [batch_size, 512, h/8, w/8] --> [batch_size, 512, h/8, w/8]
-            ResidualBlock(512, 512),
-
-            # [batch_size, 512, h/8, w/8] --> [batch_size, 512, h/8, w/8]
-            ResidualBlock(512, 512),
-
-            # [batch_size, 512, h/8, w/8] --> [batch_size, 512, h/8, w/8]
-            ResidualBlock(512, 512),
-
-            # [batch_size, 512, h/8, w/8] --> [batch_size, 512, h/4, w/4]
-            nn.Upsample(scale_factor=2),
-
-            # [batch_size, 512, h/4, w/4] --> [batch_size, 512, h/4, w/4]
-            nn.Conv2d(512, 512, kernel_size=3, padding=1),
-
-            # [batch_size, 512, h/4, w/4] --> [batch_size, 512, h/4, w/4]
-            ResidualBlock(512, 512),
-
-            # [batch_size, 512, h/4, w/4] --> [batch_size, 512, h/4, w/4]
-            ResidualBlock(512, 512),
-
-            # [batch_size, 512, h/4, w/4] --> [batch_size, 512, h/4, w/4]
-            ResidualBlock(512, 512),
-
-            # [batch_size, 512, h/4, w/4] --> [batch_size, 512, h/2, w/2]
-            nn.Upsample(scale_factor=2),
-
-            # [batch_size, 512, h/2, w/2] --> [batch_size, 512, h/2, w/2]
-            nn.Conv2d(512, 512, kernel_size=3, padding=1),
-
-            # [batch_size, 512, h/2, w/2] --> [batch_size, 256, h/2, w/2]
-            ResidualBlock(512, 256),
-
-            # [batch_size, 256, h/2, w/2] --> [batch_size, 256, h/2, w/2]
+            # [batch_size, 256, h/8, w/8] --> [batch_size, 256, h/8, w/8]
             ResidualBlock(256, 256),
 
-            # [batch_size, 256, h/2, w/2] --> [batch_size, 256, h/2, w/2]
+            # [batch_size, 256, h/8, w/8] --> [batch_size, 256, h/8, w/8]
+            AttentionBlock(256),
+
+            # [batch_size, 256, h/8, w/8] --> [batch_size, 256, h/8, w/8]
             ResidualBlock(256, 256),
 
-            # [batch_size, 256, h/2, w/2] --> [batch_size, 256, h, w]
+            # [batch_size, 256, h/8, w/8] --> [batch_size, 256, h/4, w/4]
             nn.Upsample(scale_factor=2),
 
-            # [batch_size, 256, h, w] --> [batch_size, 256, h, w]
+            # [batch_size, 256, h/4, w/4] --> [batch_size, 256, h/4, w/4]
+            nn.Conv2d(256, 256, kernel_size=3, padding=1),
+
+            # [batch_size, 256, h/4, w/4] --> [batch_size, 256, h/4, w/4]
+            ResidualBlock(256, 256),
+
+            # [batch_size, 256, h/4, w/4] --> [batch_size, 128, h/2, w/2]
+            nn.Upsample(scale_factor=2),
+
+            # [batch_size, 256, h/2, w/2] --> [batch_size, 128, h/2, w/2]
             nn.Conv2d(256, 128, kernel_size=3, padding=1),
 
-            # [batch_size, 256, h, w] --> [batch_size, 128, h, w]
-            ResidualBlock(256, 128),
-
-            # [batch_size, 128, h, w] --> [batch_size, 128, h, w]
+            # [batch_size, 128, h/2, w/2] --> [batch_size, 128, h/2, w/2]
             ResidualBlock(128, 128),
 
-            # [batch_size, 128, h, w] --> [batch_size, 128, h, w]
-            ResidualBlock(128, 128),
+            # [batch_size, 128, h/2, w/2] --> [batch_size, 64, h, w]
+            nn.Upsample(scale_factor=2),
 
-            nn.GroupNorm(32, 128),
+            # [batch_size, 128, h, w] --> [batch_size, 64, h, w]
+            nn.Conv2d(128, 64, kernel_size=3, padding=1),
+
+            # [batch_size, 64, h, w] --> [batch_size, 64, h, w]
+            ResidualBlock(64, 64),
+
+            # [batch_size, 64, h, w] --> [batch_size, 64, h, w]
+            ResidualBlock(64, 64),
+
+            nn.GroupNorm(32, 64),
             nn.SiLU(),
 
-            # [batch_size, 128, h, w] --> [batch_size, 3, h, w]
-            nn.Conv2d(128, 3, kernel_size=3, padding=1),
+            # [batch_size, 64, h, w] --> [batch_size, 3, h, w]
+            nn.Conv2d(64, 3, kernel_size=3, padding=1),
         )
 
     def forward(self, x):
