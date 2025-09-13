@@ -8,7 +8,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 
 from src.applications.train_vae import train_vae
 from src.models.autoencoder import VAE
-from src.data.vae_dataset import VaeDataset, TestVaeDataset
+from src.data.vae_dataset import VaeDataset
 
 warnings.filterwarnings("ignore")
 
@@ -24,14 +24,15 @@ if __name__ == "__main__":
 
     print("[INFO] Initializing VAE...\n")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
     model = VAE()
 
     print("[INFO] Prepating data...\n")
-    pretrain_dataset = TestVaeDataset()
+    pretrain_dataset = VaeDataset()
     pretrain_dataloader = DataLoader(pretrain_dataset, batch_size=args["batch_size"], shuffle=True)
 
-    test_dataset = TestVaeDataset()
-    test_dataloader = DataLoader(test_dataset, batch_size=args["batch_size"], shuffle=False)
+    eval_dataset = VaeDataset(mode="val")
+    eval_dataloader = DataLoader(eval_dataset, batch_size=args["batch_size"], shuffle=False)
 
     optimizer = AdamW(
         model.parameters(),
@@ -65,7 +66,7 @@ if __name__ == "__main__":
         model=model,
         device=device,
         train_loader=pretrain_dataloader,
-        eval_loader=test_dataloader,
+        eval_loader=eval_dataloader,
         optimizer=optimizer,
         num_epochs=args["epochs"],
         scheduler=scheduler,

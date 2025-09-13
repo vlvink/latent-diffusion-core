@@ -48,3 +48,20 @@ class SelfAttention(nn.Module):
         # [batch_size, seq_len, emb_dim] --> [batch_size, seq_len, emb_dim]
         output = self.out_proj(output)
         return output
+
+
+class CrossAttention(nn.Module):
+    def __init__(self, emded_dim, context_dim, n_heads, in_proj_bias=True, out_proj_bias=True):
+        super(CrossAttention, self).__init__()
+        self.n_heads = n_heads
+        self.scale = (emded_dim // n_heads) ** -0.5
+
+        self.to_Q = nn.Linear(emded_dim, emded_dim, bias=in_proj_bias)
+        self.to_K = nn.Linear(context_dim, emded_dim, bias=in_proj_bias)
+        self.to_V = nn.Linear(context_dim, emded_dim, bias=in_proj_bias)
+        self.to_out = nn.Linear(emded_dim, emded_dim, bias=out_proj_bias)
+
+    def forward(self, x, causal_mask=None):
+        B, N, C = x.shape
+        H = self.n_heads
+

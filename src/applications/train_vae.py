@@ -32,7 +32,7 @@ def train_vae(
         for i, images in loop:
             images = images.to(device)
 
-            recon_x, encoded = model(images)
+            encoded, recon_x = model(images)
             mean, log_variance = torch.chunk(encoded, 2, dim=1)
 
             loss, (mse, kl_loss) = vae_loss(recon_x, images, mean, log_variance, beta)
@@ -70,7 +70,7 @@ def train_vae(
         with torch.no_grad():
             for images in tqdm(eval_loader, desc="Validation"):
                 images = images.to(device)
-                recon_x, _ = model(images)
+                _, recon_x = model(images)
                 lpips_value = lpips_score(images, recon_x).mean().item()
                 lpips_scores.append(lpips_value)
 

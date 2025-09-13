@@ -36,11 +36,22 @@ poetry install
 poetry shell
 ```
 
+### Dataset downloading
+```bash
+curl -L -o ./data/coco-2017-dataset.zip \
+  https://www.kaggle.com/api/v1/datasets/download/awsaf49/coco-2017-dataset
+
+unzip -o ./data/coco-2017-dataset.zip -d ./data
+mv ./data/coco2017/* ./data/
+rmdir ./data/coco2017
+
+rm ./data/coco-2017-dataset.zip
+```
+
 ## Running the Code
 ### Training VAE
 ```bash
 python train_vae.py \
-  --dataset mscoco \
   --epochs 50 \
   --batch-size 64
 ```
@@ -48,7 +59,6 @@ python train_vae.py \
 ### Training Diffusion Model
 ```bash
 python train_diffusion.py \
-  --dataset mscoco \
   --epochs 200 \
   --batch-size 32 \
   --text-encoder clip-vit
